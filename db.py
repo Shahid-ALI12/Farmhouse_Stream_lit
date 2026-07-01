@@ -345,7 +345,8 @@ def add_sale(customer_id: int, product_id: int, quantity: float,
              rate_per_bag: float, rickshaw_fare: float,
              cash_received: float, sale_date: str, location_id: int,
              entered_by: str = None, unit_type: str = "bags",
-             bag_weight_kg: float = None, mix_order_id: str = None):
+             bag_weight_kg: float = None, mix_order_id: str = None,
+             transaction_group_id: str = None, rickshaw_driver_name: str = None):
     client = get_client()
     result = client.table("sales").insert({
         "customer_id": customer_id,
@@ -360,6 +361,8 @@ def add_sale(customer_id: int, product_id: int, quantity: float,
         "unit_type": unit_type,
         "bag_weight_kg": bag_weight_kg,
         "mix_order_id": mix_order_id,
+        "transaction_group_id": transaction_group_id,
+        "rickshaw_driver_name": rickshaw_driver_name.strip() if rickshaw_driver_name else None,
     }).execute()
     sale_id = result.data[0]["id"]
     # A sale takes stock OUT of the specific location it was sold from
@@ -423,6 +426,20 @@ def get_mix_order_lines(mix_order_id: str):
         client.table("sales")
         .select("*, products(name), customers(name, type, phone)")
         .eq("mix_order_id", mix_order_id)
+        .order("created_at")
+        .execute()
+        .data
+    )
+
+
+def get_transaction_group_lines(transaction_group_id: str):
+    """All product lines belonging to one cart-style multi-item sale
+    (one customer, several different products, billed together)."""
+    client = get_client()
+    return (
+        client.table("sales")
+        .select("*, products(name), customers(name, type, phone), locations(name)")
+        .eq("transaction_group_id", transaction_group_id)
         .order("created_at")
         .execute()
         .data

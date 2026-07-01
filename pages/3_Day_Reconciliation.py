@@ -7,9 +7,9 @@ import streamlit as st
 from datetime import date, timedelta
 import pandas as pd
 import db
+import ui
 
-st.set_page_config(page_title="Day Reconciliation", page_icon="🏁", layout="wide")
-st.title("🏁 Day Reconciliation")
+ui.page_header("🏁 Day Reconciliation", "End-of-day cash summary — single day or a date range.")
 
 mode = st.radio("View", ["Single Day", "Date Range"], horizontal=True)
 

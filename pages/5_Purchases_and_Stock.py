@@ -14,9 +14,9 @@ import streamlit as st
 from datetime import date
 import pandas as pd
 import db
+import ui
 
-st.set_page_config(page_title="Purchases & Stock", page_icon="📦", layout="wide")
-st.title("📦 Purchases & Stock")
+ui.page_header("📦 Purchases & Stock", "Correct stock counts, record purchases, and review today's purchase log.")
 
 products = db.get_products()
 product_names = [p["name"] for p in products]

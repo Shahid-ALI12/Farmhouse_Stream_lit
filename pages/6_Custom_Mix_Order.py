@@ -14,14 +14,12 @@ from datetime import date
 import uuid
 import pandas as pd
 import db
+import ui
 from pdf_bill import generate_custom_mix_bill_pdf, CREDIT_LIMIT
 
-st.set_page_config(page_title="Custom Mix Order", page_icon="🧪", layout="wide")
-st.title("🧪 Custom Mix Order")
-st.caption(
-    "Build a custom feed blend to a target total weight, ingredient by "
-    "ingredient. Each ingredient is added to stock deduction and the "
-    "customer's bill automatically."
+ui.page_header(
+    "🧪 Custom Mix Order",
+    "Build a custom feed blend to a target total weight, ingredient by ingredient.",
 )
 
 # ---------------- Session state setup ----------------

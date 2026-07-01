@@ -7,10 +7,10 @@ hand-entered, so it can never drift out of sync with daily entries.
 import streamlit as st
 import pandas as pd
 import db
+import ui
 from pdf_bill import generate_customer_bill_pdf, CREDIT_LIMIT
 
-st.set_page_config(page_title="Customer Khata", page_icon="📖", layout="wide")
-st.title("📖 Customer Khata (Ledger)")
+ui.page_header("📖 Customer Khata", "Running ledger and credit balance for every customer.")
 
 customers = db.get_customers()
 
@@ -80,19 +80,35 @@ if not detail_sales and not detail_settlements:
 else:
     st.markdown("**Sales (charges added to their tab)**")
     if detail_sales:
+        # Number bills in chronological order, grouped by
+        # transaction_group_id, so multi-item bills are visibly tied
+        # together instead of looking like unrelated single sales.
+        group_numbers = {}
+        next_group_num = 1
         rows = []
         for s in detail_sales:
+            group_id = s.get("transaction_group_id")
+            if group_id:
+                if group_id not in group_numbers:
+                    group_numbers[group_id] = next_group_num
+                    next_group_num += 1
+                bill_label = f"#{group_numbers[group_id]}"
+            else:
+                bill_label = "—"
+
             bill = s["quantity"] * s["rate_per_bag"] + s["rickshaw_fare"]
             rows.append({
+                "Bill": bill_label,
                 "Date": s["sale_date"],
                 "Product": s["products"]["name"],
                 "Qty": s["quantity"],
                 "Rate": s["rate_per_bag"],
                 "Rickshaw": s["rickshaw_fare"],
-                "Bill": bill,
+                "Bill Amount": bill,
                 "Cash Paid": s["cash_received"],
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.caption("Rows sharing the same Bill number were one transaction (one customer visit).")
     else:
         st.caption("No sales recorded.")
 

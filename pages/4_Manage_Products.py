@@ -5,9 +5,9 @@ This is where the "occasional new item" gets added in a few seconds.
 import streamlit as st
 import pandas as pd
 import db
+import ui
 
-st.set_page_config(page_title="Manage Products", page_icon="⚙️", layout="wide")
-st.title("⚙️ Manage Products & Rates")
+ui.page_header("⚙️ Manage Products & Rates", "Add new items and update today's suggested rates.")
 
 st.caption(
     "Rates here are just the **starting suggestion** shown when entering a sale — "

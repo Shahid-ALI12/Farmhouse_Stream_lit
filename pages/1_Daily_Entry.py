@@ -5,19 +5,25 @@ and a live cash summary at the bottom.
 """
 import streamlit as st
 from datetime import date
+import uuid
 import pandas as pd
 import db
+import ui
 
-st.set_page_config(page_title="Daily Entry", page_icon="🧾", layout="wide")
-st.title("🧾 Daily Entry")
+ui.page_header("🧾 Daily Entry", "Add today's sales and expenses, and see the live cash summary.")
 
 selected_date = st.date_input("Date", value=date.today())
 date_str = selected_date.isoformat()
 
 st.divider()
 
-# ================== ADD A SALE ==================
+# ================== ADD A SALE (CART STYLE) ==================
 st.subheader("➕ Add a Sale")
+st.caption(
+    "Add every product the customer is buying into the cart below, "
+    "then click **Complete Sale** once — this saves it all as one bill, "
+    "the same way a supermarket checkout works."
+)
 
 products = db.get_products()
 product_names = [p["name"] for p in products]
@@ -27,17 +33,16 @@ locations = db.get_locations()
 location_names = [l["name"] for l in locations]
 location_lookup = {l["name"]: l for l in locations}
 
-# --- Everything that feeds the bill calculation lives OUTSIDE the
-# st.form below. Streamlit only re-runs the script (and recalculates
-# things like a live bill preview) when a widget OUTSIDE a form
-# changes; widgets INSIDE a form stay frozen until the form is
-# submitted. Putting location/unit/product/quantity/rate/rickshaw out
-# here means the bill preview updates on every keystroke, instead of
-# showing Rs. 0 until the operator hits "Add Sale".
+if "sale_cart" not in st.session_state:
+    st.session_state.sale_cart = []  # list of dicts, one per product line
+
+# --- Everything that feeds the line-item preview lives OUTSIDE the
+# st.form below, same reasoning as before: widgets inside a form stay
+# frozen until submit, so a live preview needs to live outside one.
 col_a, col_b = st.columns(2)
 with col_a:
     location_choice = st.radio(
-        "Location (this sale's stock comes from)", location_names,
+        "Location (this item's stock comes from)", location_names,
         horizontal=True, key="sale_location_choice",
         help="Farm and Shop stock are tracked completely separately.",
     )
@@ -77,13 +82,63 @@ with calc_col3:
     rate_label = "Rate per Bag (Rs.)" if unit_type == "bags" else "Rate per KG (Rs.)"
     rate = st.number_input(rate_label, min_value=0.0, value=float(default_rate),
                             step=10.0, key="sale_rate")
-    rickshaw = st.number_input("Rickshaw Freight (Rs.)", min_value=0.0, step=50.0, key="sale_rickshaw")
 
-# --- Live preview, recalculated on every keystroke above ---
-live_bill = quantity * rate + rickshaw
-st.info(f"💰 **Bill so far: Rs. {live_bill:,.0f}**  ({quantity:,.0f} x Rs.{rate:,.0f} + Rs.{rickshaw:,.0f} freight)")
+line_amount = quantity * rate
+st.info(f"💰 **This line: Rs. {line_amount:,.0f}**  ({quantity:,.0f} x Rs.{rate:,.0f})")
 
-with st.form("add_sale_form", clear_on_submit=True):
+if st.button("➕ Add to Cart", use_container_width=True):
+    if quantity <= 0:
+        st.error("Quantity must be greater than 0.")
+    elif unit_type == "bags" and bag_weight <= 0:
+        st.error("Please enter a valid bag weight.")
+    else:
+        st.session_state.sale_cart.append({
+            "product": product_name,
+            "product_id": selected_product["id"],
+            "location": location_choice,
+            "location_id": selected_location["id"],
+            "quantity": quantity,
+            "unit_type": unit_type,
+            "bag_weight_kg": bag_weight,
+            "rate": rate,
+            "amount": line_amount,
+        })
+        st.success(f"Added {quantity:,.0f} {'bag(s)' if unit_type == 'bags' else 'kg'} of {product_name} to cart.")
+        st.rerun()
+
+st.divider()
+
+# ---------------- Current cart ----------------
+st.markdown("**🛒 Current Cart**")
+if not st.session_state.sale_cart:
+    st.caption("Cart is empty — add products above.")
+else:
+    h = st.columns([1.8, 1, 1, 1, 1, 1, 0.6])
+    for col, label in zip(h, ["Product", "Location", "Qty", "Rate", "Amount", "", ""]):
+        col.markdown(f"**{label}**")
+
+    for idx, item in enumerate(st.session_state.sale_cart):
+        unit_suffix = "kg" if item["unit_type"] == "kg" else ""
+        row = st.columns([1.8, 1, 1, 1, 1, 1, 0.6])
+        row[0].write(item["product"])
+        row[1].write(item["location"])
+        row[2].write(f"{item['quantity']:,.0f}{unit_suffix}")
+        row[3].write(f"{item['rate']:,.0f}")
+        row[4].write(f"{item['amount']:,.0f}")
+        row[5].write("")
+        if row[6].button("🗑️", key=f"del_cart_{idx}"):
+            st.session_state.sale_cart.pop(idx)
+            st.rerun()
+
+    cart_total = sum(item["amount"] for item in st.session_state.sale_cart)
+    st.metric("Cart Subtotal", f"Rs. {cart_total:,.0f}")
+
+st.divider()
+
+# ---------------- Finalize the whole cart as ONE sale ----------------
+st.markdown("**✅ Complete Sale**")
+
+with st.form("complete_sale_form"):
     col1, col2 = st.columns(2)
     with col1:
         customer_type = st.radio(
@@ -95,40 +150,63 @@ with st.form("add_sale_form", clear_on_submit=True):
             placeholder="Type name — existing customer is matched automatically",
         )
     with col2:
+        rickshaw = st.number_input(
+            "Rickshaw Freight for this Bill (Rs.)", min_value=0.0, step=50.0,
+            help="One freight charge for the whole bill, not per item.",
+        )
+        rickshaw_driver_name = st.text_input(
+            "Rickshaw Driver Name (optional)",
+            placeholder="Leave blank if not applicable",
+        )
         cash_received = st.number_input(
             "Cash Received Now (Rs.)", min_value=0.0, step=100.0,
             help="For cash customers, this is usually the full bill amount.",
         )
-        st.metric("Bill Total", f"Rs. {live_bill:,.0f}")
 
-    submitted = st.form_submit_button("Add Sale", use_container_width=True, type="primary")
+    cart_total = sum(item["amount"] for item in st.session_state.sale_cart)
+    grand_total = cart_total + rickshaw
+    st.metric("Grand Total (incl. freight)", f"Rs. {grand_total:,.0f}")
+
+    submitted = st.form_submit_button(
+        "Complete Sale", use_container_width=True, type="primary",
+        disabled=len(st.session_state.sale_cart) == 0,
+    )
 
     if submitted:
         if not customer_name.strip():
             st.error("Please enter a customer name.")
-        elif quantity <= 0:
-            st.error("Quantity must be greater than 0.")
-        elif unit_type == "bags" and bag_weight <= 0:
-            st.error("Please enter a valid bag weight.")
+        elif not st.session_state.sale_cart:
+            st.error("Cart is empty — add at least one product first.")
         else:
             customer = db.get_or_create_customer(customer_name, customer_type)
-            db.add_sale(
-                customer_id=customer["id"],
-                product_id=selected_product["id"],
-                quantity=quantity,
-                rate_per_bag=rate,
-                rickshaw_fare=rickshaw,
-                cash_received=cash_received,
-                sale_date=date_str,
-                location_id=selected_location["id"],
-                unit_type=unit_type,
-                bag_weight_kg=bag_weight,
-            )
-            unit_label = "bag(s)" if unit_type == "bags" else "kg"
+            transaction_group_id = str(uuid.uuid4())
+            cart = st.session_state.sale_cart
+
+            for i, item in enumerate(cart):
+                # Rickshaw freight, driver name, and cash received are
+                # charged/recorded ONCE for the whole bill (confirmed) —
+                # all ride on the FIRST line so they aren't duplicated
+                # across lines.
+                db.add_sale(
+                    customer_id=customer["id"],
+                    product_id=item["product_id"],
+                    quantity=item["quantity"],
+                    rate_per_bag=item["rate"],
+                    rickshaw_fare=rickshaw if i == 0 else 0,
+                    cash_received=cash_received if i == 0 else 0,
+                    sale_date=date_str,
+                    location_id=item["location_id"],
+                    unit_type=item["unit_type"],
+                    bag_weight_kg=item["bag_weight_kg"],
+                    transaction_group_id=transaction_group_id,
+                    rickshaw_driver_name=rickshaw_driver_name if i == 0 else None,
+                )
+
             st.success(
-                f"Added: {customer_name} — {quantity:,.0f} {unit_label} of {product_name} "
-                f"@ Rs.{rate:,.0f} = Rs.{live_bill:,.0f} bill  (from {location_choice})"
+                f"Sale completed for {customer_name} — {len(cart)} item(s), "
+                f"Rs. {grand_total:,.0f} total bill."
             )
+            st.session_state.sale_cart = []
             st.rerun()
 
 st.divider()
@@ -152,7 +230,17 @@ else:
     total_bill = 0
     total_cash_from_sales = 0
 
+    # Group rows by transaction_group_id so multi-item bills show
+    # together with a visible separator between different bills.
+    seen_group_ids = set()
+
     for s in sales:
+        group_id = s.get("transaction_group_id")
+        if group_id and group_id not in seen_group_ids:
+            seen_group_ids.add(group_id)
+            if len(seen_group_ids) > 1:
+                st.markdown("<hr style='margin:2px 0; opacity:0.3'>", unsafe_allow_html=True)
+
         bill = s["quantity"] * s["rate_per_bag"] + s["rickshaw_fare"]
         remaining = bill - s["cash_received"]
         total_bags += s["quantity"] if s.get("unit_type", "bags") == "bags" else 0
@@ -169,6 +257,8 @@ else:
         row[4].write(f"{s['quantity']:,.0f}{unit_suffix}")
         row[5].write(f"{s['rate_per_bag']:,.0f}")
         row[6].write(f"{s['rickshaw_fare']:,.0f}")
+        if s.get("rickshaw_driver_name"):
+            row[6].caption(f"🛺 {s['rickshaw_driver_name']}")
         row[7].write(f"{bill:,.0f}")
         row[8].write(f"{s['cash_received']:,.0f}")
         row[9].write(f"{remaining:,.0f}")

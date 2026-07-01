@@ -1,32 +1,40 @@
 """
-app.py — entry point. Sets up the page and sidebar navigation.
-Run with: streamlit run app.py
+app.py — entry point. Sets up the page, theme, and grouped sidebar
+navigation. Run with: streamlit run app.py
 """
 import streamlit as st
+import ui
 
 st.set_page_config(
     page_title="Danish Cattle Feed — Daily Register",
-    page_icon="📋",
+    page_icon="🐄",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("📋 Danish Cattle Feed — Daily Register")
+ui.inject_css()
 
-st.markdown(
-    """
-    Use the menu on the left to move between sections:
+nav_sections = {
+    "Overview": [
+        st.Page("pages/0_Dashboard.py", title="Dashboard", icon="📊"),
+    ],
+    "Daily Operations": [
+        st.Page("pages/1_Daily_Entry.py", title="Daily Entry", icon="🧾"),
+        st.Page("pages/6_Custom_Mix_Order.py", title="Custom Mix Order", icon="🧪"),
+        st.Page("pages/3_Day_Reconciliation.py", title="Day Reconciliation", icon="🏁"),
+    ],
+    "Customers": [
+        st.Page("pages/2_Customer_Khata.py", title="Customer Khata", icon="📖"),
+    ],
+    "Inventory": [
+        st.Page("pages/5_Purchases_and_Stock.py", title="Purchases & Stock", icon="📦"),
+        st.Page("pages/4_Manage_Products.py", title="Manage Products", icon="⚙️"),
+    ],
+}
 
-    - **🧾 Daily Entry** — add today's sales and expenses
-    - **📖 Customer Khata** — see what each customer owes / has paid
-    - **🏁 Day Reconciliation** — today's full cash summary
-    - **⚙️ Manage Products & Rates** — add new items, update today's rates
+all_pages = [p for group in nav_sections.values() for p in group]
+selected_page = st.navigation(all_pages, position="hidden")
 
-    All data is saved to the shared database immediately, so anyone
-    entering data on any device sees the same up-to-date numbers.
-    """
-)
+ui.render_sidebar(nav_sections)
 
-st.info(
-    "👈 Pick a page from the sidebar to get started.",
-    icon="👉",
-)
+selected_page.run()
