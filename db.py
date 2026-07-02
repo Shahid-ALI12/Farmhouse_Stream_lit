@@ -729,7 +729,6 @@ def get_all_mix_orders():
     raw = (
         client.table("sales")
         .select("mix_order_id, customer_id, customers(name), sale_date, location_id, locations(name)")
-        .is_("mix_order_id", "not.null")
         .order("sale_date", desc=True)
         .execute()
         .data
