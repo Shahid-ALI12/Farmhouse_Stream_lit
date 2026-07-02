@@ -729,22 +729,22 @@ def get_all_mix_orders():
     raw = (
         client.table("sales")
         .select("mix_order_id, customer_id, customers(name), sale_date, location_id, locations(name)")
-        .not_.eq("mix_order_id", None)
         .order("sale_date", desc=True)
         .execute()
         .data
     )
     seen = {}
     for r in raw:
-        mid = r["mix_order_id"]
-        if mid not in seen:
-            seen[mid] = {
-                "mix_order_id": mid,
-                "customer_id": r["customer_id"],
-                "customer_name": r["customers"]["name"],
-                "sale_date": r["sale_date"],
-                "location_name": r["locations"]["name"] if r.get("locations") else "—",
-            }
+        mid = r.get("mix_order_id")
+        if mid:
+            if mid not in seen:
+                seen[mid] = {
+                    "mix_order_id": mid,
+                    "customer_id": r["customer_id"],
+                    "customer_name": r["customers"]["name"],
+                    "sale_date": r["sale_date"],
+                    "location_name": r["locations"]["name"] if r.get("locations") else "—",
+                }
     return list(seen.values())
 
 

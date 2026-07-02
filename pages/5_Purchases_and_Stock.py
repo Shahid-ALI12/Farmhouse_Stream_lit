@@ -59,6 +59,15 @@ for tab, loc in zip(stock_tabs, locations):
 
         editor_key = f"stock_editor_{loc['id']}"
 
+        edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
+        for row_idx, changes in edited_rows.items():
+            row = base_df.iloc[row_idx]
+            bag_weight = row["Bag Weight (kg)"] or 50
+            if "Bags" in changes:
+                base_df.at[row_idx, "Total KG"] = float(changes["Bags"]) * bag_weight
+            elif "Total KG" in changes:
+                base_df.at[row_idx, "Bags"] = float(changes["Total KG"]) / bag_weight if bag_weight else 0
+
         edited_df = st.data_editor(
             base_df,
             column_order=["Product", "Bag Weight (kg)", "Bags", "Total KG"],
@@ -78,7 +87,6 @@ for tab, loc in zip(stock_tabs, locations):
         # position -> {column_name: new_value}. We only act on cells
         # that were actually edited, so e.g. editing "Bags" doesn't
         # require the unrelated "Total KG" cell to also change first.
-        edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
 
         if edited_rows:
             preview_lines = []
