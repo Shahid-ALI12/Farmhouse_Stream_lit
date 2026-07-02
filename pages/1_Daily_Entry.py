@@ -5,6 +5,7 @@ and a live cash summary at the bottom.
 """
 import streamlit as st
 from datetime import date
+from collections import defaultdict
 import uuid
 import pandas as pd
 import db
@@ -219,56 +220,111 @@ sales = db.get_sales_for_date(date_str)
 if not sales:
     st.caption("No sales entered yet for this date.")
 else:
-    # Header row
-    h = st.columns([1.3, 0.9, 1.3, 0.9, 0.8, 0.8, 0.8, 1, 1, 1, 0.8])
-    headers = ["Customer", "Type", "Product", "Location", "Qty", "Rate", "Rickshaw",
-               "Bill", "Cash Recv.", "Remaining", ""]
-    for col, label in zip(h, headers):
-        col.markdown(f"**{label}**")
+    mix_groups = defaultdict(list)
+    for s in sales:
+        if s.get("mix_order_id"):
+            mix_groups[s["mix_order_id"]].append(s)
+
+    regular_sales = [s for s in sales if not s.get("mix_order_id")]
+    mix_order_sales = [s for s in sales if s.get("mix_order_id")]
 
     total_bags = 0
     total_bill = 0
     total_cash_from_sales = 0
 
-    # Group rows by transaction_group_id so multi-item bills show
-    # together with a visible separator between different bills.
-    seen_group_ids = set()
+    # ---- Regular Sales ----
+    if regular_sales:
+        st.markdown("**Regular Sales**")
+        h = st.columns([1.3, 0.9, 1.3, 0.9, 0.8, 0.8, 0.8, 1, 1, 1, 0.8])
+        headers = ["Customer", "Type", "Product", "Location", "Qty", "Rate", "Rickshaw",
+                   "Bill", "Cash Recv.", "Remaining", ""]
+        for col, label in zip(h, headers):
+            col.markdown(f"**{label}**")
 
-    for s in sales:
-        group_id = s.get("transaction_group_id")
-        if group_id and group_id not in seen_group_ids:
-            seen_group_ids.add(group_id)
-            if len(seen_group_ids) > 1:
-                st.markdown("<hr style='margin:2px 0; opacity:0.3'>", unsafe_allow_html=True)
+        seen_group_ids = set()
 
-        bill = s["quantity"] * s["rate_per_bag"] + s["rickshaw_fare"]
-        remaining = bill - s["cash_received"]
-        total_bags += s["quantity"] if s.get("unit_type", "bags") == "bags" else 0
-        total_bill += bill
-        total_cash_from_sales += s["cash_received"]
+        for s in regular_sales:
+            group_id = s.get("transaction_group_id")
+            if group_id and group_id not in seen_group_ids:
+                seen_group_ids.add(group_id)
+                if len(seen_group_ids) > 1:
+                    st.markdown("<hr style='margin:2px 0; opacity:0.3'>", unsafe_allow_html=True)
 
-        unit_suffix = "kg" if s.get("unit_type") == "kg" else ""
-        location_label = s["locations"]["name"] if s.get("locations") else "—"
-        row = st.columns([1.3, 0.9, 1.3, 0.9, 0.8, 0.8, 0.8, 1, 1, 1, 0.8])
-        row[0].write(s["customers"]["name"])
-        row[1].write(s["customers"]["type"])
-        row[2].write(s["products"]["name"])
-        row[3].write(location_label)
-        row[4].write(f"{s['quantity']:,.0f}{unit_suffix}")
-        row[5].write(f"{s['rate_per_bag']:,.0f}")
-        row[6].write(f"{s['rickshaw_fare']:,.0f}")
-        if s.get("rickshaw_driver_name"):
-            row[6].caption(f"🛺 {s['rickshaw_driver_name']}")
-        row[7].write(f"{bill:,.0f}")
-        row[8].write(f"{s['cash_received']:,.0f}")
-        row[9].write(f"{remaining:,.0f}")
-        if row[10].button("🗑️", key=f"del_sale_{s['id']}", help="Delete this sale"):
-            db.delete_sale(s["id"])
-            st.success("Sale deleted and stock adjusted back.")
-            st.rerun()
+            bill = s["quantity"] * s["rate_per_bag"] + s["rickshaw_fare"]
+            remaining = bill - s["cash_received"]
+            total_bags += s["quantity"] if s.get("unit_type", "bags") == "bags" else 0
+            total_bill += bill
+            total_cash_from_sales += s["cash_received"]
+
+            unit_suffix = "kg" if s.get("unit_type") == "kg" else ""
+            location_label = s["locations"]["name"] if s.get("locations") else "—"
+            row = st.columns([1.3, 0.9, 1.3, 0.9, 0.8, 0.8, 0.8, 1, 1, 1, 0.8])
+            row[0].write(s["customers"]["name"])
+            row[1].write(s["customers"]["type"])
+            row[2].write(s["products"]["name"])
+            row[3].write(location_label)
+            row[4].write(f"{s['quantity']:,.0f}{unit_suffix}")
+            row[5].write(f"{s['rate_per_bag']:,.0f}")
+            row[6].write(f"{s['rickshaw_fare']:,.0f}")
+            if s.get("rickshaw_driver_name"):
+                row[6].caption(f"🛺 {s['rickshaw_driver_name']}")
+            row[7].write(f"{bill:,.0f}")
+            row[8].write(f"{s['cash_received']:,.0f}")
+            row[9].write(f"{remaining:,.0f}")
+            if row[10].button("🗑️", key=f"del_sale_{s['id']}", help="Delete this sale"):
+                db.delete_sale(s["id"])
+                st.success("Sale deleted and stock adjusted back.")
+                st.rerun()
+
+    # ---- Mix Orders ----
+    if mix_groups:
+        st.divider()
+        st.markdown("**🧪 Mix Orders**")
+        mh = st.columns([1.3, 1.3, 0.9, 0.9, 1, 1, 1, 0.8])
+        mheaders = ["Customer", "Order", "Location", "Total Qty", "Total Bill", "Cash Recv.", "Remaining", ""]
+        for col, label in zip(mh, mheaders):
+            col.markdown(f"**{label}**")
+
+        for moid, lines in mix_groups.items():
+            customer_name = lines[0]["customers"]["name"]
+            customer_type = lines[0]["customers"]["type"]
+            location_name = lines[0]["locations"]["name"] if lines[0].get("locations") else "—"
+            total_qty = sum(l["quantity"] for l in lines)
+            total_mix_bill = sum(l["quantity"] * l["rate_per_bag"] for l in lines)
+            total_mix_cash = sum(l["cash_received"] for l in lines)
+            total_mix_remaining = total_mix_bill - total_mix_cash
+
+            total_bags += total_qty
+            total_bill += total_mix_bill
+            total_cash_from_sales += total_mix_cash
+
+            mr = st.columns([1.3, 1.3, 0.9, 0.9, 1, 1, 1, 0.8])
+            mr[0].write(customer_name)
+            mr[1].write("🧪 Mix Order")
+            mr[2].write(location_name)
+            mr[3].write(f"{total_qty:,.0f} kg")
+            mr[4].write(f"{total_mix_bill:,.0f}")
+            mr[5].write(f"{total_mix_cash:,.0f}")
+            mr[6].write(f"{total_mix_remaining:,.0f}")
+            if mr[7].button("🗑️", key=f"del_mix_{moid}", help="Delete this mix order"):
+                db.delete_mix_order(moid)
+                st.success(f"Mix order for {customer_name} deleted and stock adjusted.")
+                st.rerun()
+
+            with st.expander(f"📋 View ingredients — {customer_name}", expanded=False):
+                ing_df = pd.DataFrame([
+                    {
+                        "Product": l["products"]["name"],
+                        "Qty (kg)": l["quantity"],
+                        "Rate/kg (Rs.)": l["rate_per_bag"],
+                        "Amount (Rs.)": l["quantity"] * l["rate_per_bag"],
+                    }
+                    for l in lines
+                ])
+                st.dataframe(ing_df, use_container_width=True, hide_index=True)
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Bags Sold", f"{total_bags:,.0f}")
+    c1.metric("Total Qty Sold", f"{total_bags:,.0f}")
     c2.metric("Total Billed", f"Rs. {total_bill:,.0f}")
     c3.metric("Cash Collected from Sales", f"Rs. {total_cash_from_sales:,.0f}")
 

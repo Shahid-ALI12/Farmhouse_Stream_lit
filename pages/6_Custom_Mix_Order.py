@@ -252,3 +252,85 @@ if "mix_last_order_id" in st.session_state and st.session_state.mix_target_weigh
             mime="application/pdf",
             type="primary",
         )
+
+# ================== Past Mix Orders ==================
+st.divider()
+st.subheader("📜 Past Mix Orders")
+
+all_mix_orders = db.get_all_mix_orders()
+
+search_name = st.text_input("Search by customer name (optional)", placeholder="Type to filter...")
+if search_name.strip():
+    all_mix_orders = [o for o in all_mix_orders if search_name.strip().lower() in o["customer_name"].lower()]
+
+if not all_mix_orders:
+    st.caption("No mix orders found.")
+else:
+    orders_df = pd.DataFrame([
+        {
+            "Customer": o["customer_name"],
+            "Date": o["sale_date"],
+            "Location": o["location_name"],
+        }
+        for o in all_mix_orders
+    ])
+    st.dataframe(orders_df, use_container_width=True, hide_index=True)
+
+    selected_order_id = st.selectbox(
+        "Select an order to view details",
+        options=[o["mix_order_id"] for o in all_mix_orders],
+        format_func=lambda mid: next(o["customer_name"] + " — " + o["sale_date"] for o in all_mix_orders if o["mix_order_id"] == mid),
+    )
+
+    if selected_order_id:
+        detail_lines = db.get_mix_order_lines(selected_order_id)
+        if detail_lines:
+            detail_customer = detail_lines[0]["customers"]
+            detail_ingredients = [
+                {
+                    "Product": l["products"]["name"],
+                    "Qty (kg)": l["quantity"],
+                    "Rate/kg (Rs.)": l["rate_per_bag"],
+                    "Amount (Rs.)": l["quantity"] * l["rate_per_bag"],
+                    "Cash Received": l["cash_received"],
+                }
+                for l in detail_lines
+            ]
+            total_weight = sum(i["Qty (kg)"] for i in detail_ingredients)
+            total_amount = sum(i["Amount (Rs.)"] for i in detail_ingredients)
+            total_cash = sum(i["Cash Received"] for i in detail_ingredients)
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Customer", detail_customer["name"])
+            c2.metric("Total Weight", f"{total_weight:,.1f} kg")
+            c3.metric("Total Bill", f"Rs. {total_amount:,.0f}")
+
+            st.dataframe(pd.DataFrame(detail_ingredients), use_container_width=True, hide_index=True)
+
+            bal = db.get_customer_balance(detail_customer["id"])
+            pdf_bytes = generate_custom_mix_bill_pdf(
+                business_name="Danish Cattle Feed",
+                customer_name=detail_customer["name"],
+                order_date=detail_lines[0]["sale_date"],
+                target_weight_kg=total_weight,
+                ingredient_lines=[
+                    {"product": i["Product"], "weight_kg": i["Qty (kg)"], "rate_per_kg": i["Rate/kg (Rs.)"], "amount": i["Amount (Rs.)"]}
+                    for i in detail_ingredients
+                ],
+                customer_phone=detail_customer.get("phone"),
+                payment_type=detail_customer["type"],
+                cash_received=total_cash,
+                new_balance_due=bal["balance_due"] if detail_customer["type"] == "credit" else None,
+            )
+            st.download_button(
+                label="📥 Download This Mix Order Bill (PDF)",
+                data=pdf_bytes,
+                file_name=f"{detail_customer['name'].replace(' ', '_')}_mix_order_{selected_order_id[:8]}.pdf",
+                mime="application/pdf",
+                type="primary",
+            )
+
+            if st.button("🗑️ Delete This Mix Order", key=f"del_past_mix_{selected_order_id}"):
+                db.delete_mix_order(selected_order_id)
+                st.success("Mix order deleted and stock adjusted.")
+                st.rerun()

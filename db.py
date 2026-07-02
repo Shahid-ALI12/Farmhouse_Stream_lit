@@ -721,7 +721,43 @@ def get_customer_statement(customer_id: int):
     return lines
 
 
-# ---------- EMPLOYEES ----------
+def get_all_mix_orders():
+    """Returns one summary row per mix order (deduplicated by mix_order_id),
+    with the customer name, date, location, and precomputed totals.
+    Used by the Custom Mix Order history view."""
+    client = get_client()
+    raw = (
+        client.table("sales")
+        .select("mix_order_id, customer_id, customers(name), sale_date, location_id, locations(name)")
+        .not_.eq("mix_order_id", None)
+        .order("sale_date", desc=True)
+        .execute()
+        .data
+    )
+    seen = {}
+    for r in raw:
+        mid = r["mix_order_id"]
+        if mid not in seen:
+            seen[mid] = {
+                "mix_order_id": mid,
+                "customer_id": r["customer_id"],
+                "customer_name": r["customers"]["name"],
+                "sale_date": r["sale_date"],
+                "location_name": r["locations"]["name"] if r.get("locations") else "—",
+            }
+    return list(seen.values())
+
+
+def delete_mix_order(mix_order_id: str):
+    """Deletes every sale row that belongs to one mix order, and reverses
+    the stock + cash ledger effects for each line."""
+    lines = get_mix_order_lines(mix_order_id)
+    for line in lines:
+        delete_sale(line["id"])
+    return True
+
+
+# ---------- DELETION HELPERS ----------
 
 def get_employees(active_only: bool = True):
     client = get_client()
