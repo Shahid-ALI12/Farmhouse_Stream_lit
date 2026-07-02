@@ -696,6 +696,7 @@ def get_customer_statement(customer_id: int):
             "rickshaw_fare": s["rickshaw_fare"],
             "charge": bill,
             "payment": s["cash_received"],
+            "mix_order_id": s.get("mix_order_id"),
         })
     for p in settlements:
         unit_label = "kg" if p.get("unit_type") == "kg" else "bag(s)"

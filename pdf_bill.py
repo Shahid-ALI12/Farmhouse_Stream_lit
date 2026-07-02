@@ -19,6 +19,47 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 CREDIT_LIMIT = 3_000_000
 
 
+def group_statement_lines_for_pdf(statement_lines):
+    """Groups consecutive sale lines that share the same mix_order_id into
+    a single 'Mix Order' row. Regular sales and goods settlements stay
+    as individual rows. This keeps the PDF bill clean — one line per
+    mix order instead of one line per ingredient."""
+    grouped = []
+    i = 0
+    while i < len(statement_lines):
+        line = statement_lines[i]
+        if line.get("type") == "sale" and line.get("mix_order_id"):
+            mix_id = line["mix_order_id"]
+            group = [line]
+            j = i + 1
+            while j < len(statement_lines) and statement_lines[j].get("mix_order_id") == mix_id:
+                group.append(statement_lines[j])
+                j += 1
+            first = group[0]
+            total_charge = sum(l["charge"] for l in group)
+            total_payment = sum(l["payment"] for l in group)
+            total_qty = sum(l["quantity"] for l in group)
+            blended_rate = total_charge / total_qty if total_qty else first["rate"]
+            grouped.append({
+                "date": first["date"],
+                "type": "sale",
+                "product": "🧪 Mix Order",
+                "quantity": total_qty,
+                "unit_label": "kg",
+                "rate": blended_rate,
+                "rickshaw_fare": 0,
+                "charge": total_charge,
+                "payment": total_payment,
+                "running_balance": group[-1]["running_balance"],
+                "is_mix_order": True,
+            })
+            i = j
+        else:
+            grouped.append(line)
+            i += 1
+    return grouped
+
+
 def generate_customer_bill_pdf(business_name: str, customer_name: str,
                                 statement_lines: list, balance_due: float,
                                 customer_phone: str = None) -> bytes:
@@ -81,8 +122,13 @@ def generate_customer_bill_pdf(business_name: str, customer_name: str,
     table_data = [["Date", "Product", "Qty", "Rate (Rs.)", "Amount (Rs.)",
                    "Paid (Rs.)", "Balance (Rs.)"]]
 
-    for line in statement_lines:
-        if line["type"] == "sale":
+    grouped_lines = group_statement_lines_for_pdf(statement_lines)
+
+    for line in grouped_lines:
+        if line.get("is_mix_order"):
+            qty_str = f"{line['quantity']:,.1f} {line['unit_label']}"
+            product_str = "🧪 Mix Order"
+        elif line["type"] == "sale":
             qty_str = f"{line['quantity']:,.0f} {line['unit_label']}"
             product_str = line["product"]
             if line.get("rickshaw_fare"):
@@ -95,15 +141,15 @@ def generate_customer_bill_pdf(business_name: str, customer_name: str,
             line["date"],
             product_str,
             qty_str,
-            f"{line['rate']:,.0f}" if line["rate"] else "-",
+            f"{line['rate']:,.2f}" if line.get("rate") else "-",
             f"{line['charge']:,.0f}" if line["charge"] else "-",
             f"{line['payment']:,.0f}" if line["payment"] else "-",
             f"{line['running_balance']:,.0f}",
         ])
 
     # Totals row
-    total_charge = sum(l["charge"] for l in statement_lines)
-    total_payment = sum(l["payment"] for l in statement_lines)
+    total_charge = sum(l["charge"] for l in grouped_lines)
+    total_payment = sum(l["payment"] for l in grouped_lines)
     table_data.append(["", "", "", "TOTAL", f"{total_charge:,.0f}",
                         f"{total_payment:,.0f}", f"{balance_due:,.0f}"])
 
