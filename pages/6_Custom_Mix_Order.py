@@ -307,7 +307,7 @@ else:
 
             st.dataframe(pd.DataFrame(detail_ingredients), use_container_width=True, hide_index=True)
 
-            bal = db.get_customer_balance(detail_customer["id"])
+            bal = db.get_customer_balance(detail_lines[0]["customer_id"])
             pdf_bytes = generate_custom_mix_bill_pdf(
                 business_name="Danish Cattle Feed",
                 customer_name=detail_customer["name"],
