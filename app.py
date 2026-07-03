@@ -22,6 +22,7 @@ nav_sections = {
         st.Page("pages/1_Daily_Entry.py", title="Daily Entry", icon="🧾"),
         st.Page("pages/6_Custom_Mix_Order.py", title="Custom Mix Order", icon="🧪"),
         st.Page("pages/3_Day_Reconciliation.py", title="Day Reconciliation", icon="🏁"),
+        st.Page("pages/7_Cash_Management.py", title="Cash Management", icon="🏦"),
     ],
     "Customers": [
         st.Page("pages/2_Customer_Khata.py", title="Customer Khata", icon="📖"),
