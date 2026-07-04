@@ -64,9 +64,14 @@ for tab, loc in zip(stock_tabs, locations):
             row = base_df.iloc[row_idx]
             bag_weight = row["Bag Weight (kg)"] or 50
             if "Bags" in changes:
-                base_df.at[row_idx, "Total KG"] = float(changes["Bags"]) * bag_weight
+                new_bags = float(changes["Bags"])
+                base_df.at[row_idx, "Bags"] = new_bags
+                base_df.at[row_idx, "Total KG"] = new_bags * bag_weight
             elif "Total KG" in changes:
-                base_df.at[row_idx, "Bags"] = float(changes["Total KG"]) / bag_weight if bag_weight else 0
+                new_kg = float(changes["Total KG"])
+                new_bags = new_kg / bag_weight if bag_weight else 0
+                base_df.at[row_idx, "Total KG"] = new_kg
+                base_df.at[row_idx, "Bags"] = new_bags
 
         edited_df = st.data_editor(
             base_df,
