@@ -58,6 +58,7 @@ for tab, loc in zip(stock_tabs, locations):
         ])
 
         editor_key = f"stock_editor_{loc['id']}"
+        save_key = f"save_btn_{loc['id']}"
 
         edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
         for row_idx, changes in edited_rows.items():
@@ -87,43 +88,55 @@ for tab, loc in zip(stock_tabs, locations):
             key=editor_key,
         )
 
-        # Streamlit records exactly which cells the user touched in
-        # st.session_state[editor_key]["edited_rows"], keyed by row
-        # position -> {column_name: new_value}. We only act on cells
-        # that were actually edited, so e.g. editing "Bags" doesn't
-        # require the unrelated "Total KG" cell to also change first.
+        pending_updates = st.session_state.pop(save_key, None)
 
-        if edited_rows:
-            preview_lines = []
-            pending_updates = {}  # row_idx -> final bag quantity to save
+        if pending_updates is None:
+            edited_rows_now = st.session_state.get(editor_key, {}).get("edited_rows", {})
+            if edited_rows_now:
+                preview_lines = []
+                pending_updates = {}
 
-            for row_idx, changes in edited_rows.items():
-                row = base_df.iloc[row_idx]
-                bag_weight = row["Bag Weight (kg)"] or 50
+                for row_idx, changes in edited_rows_now.items():
+                    row = base_df.iloc[row_idx]
+                    bag_weight = row["Bag Weight (kg)"] or 50
 
-                if "Bags" in changes:
-                    new_bags = float(changes["Bags"])
-                elif "Total KG" in changes:
-                    new_kg = float(changes["Total KG"])
-                    new_bags = new_kg / bag_weight if bag_weight else new_kg
-                else:
-                    continue
+                    if "Bags" in changes:
+                        new_bags = float(changes["Bags"])
+                    elif "Total KG" in changes:
+                        new_kg = float(changes["Total KG"])
+                        new_bags = new_kg / bag_weight if bag_weight else 0
+                    else:
+                        continue
 
-                pending_updates[row_idx] = new_bags
-                preview_lines.append(
-                    f"- *{row['Product']}*: {new_bags:,.1f} bags "
-                    f"(≈ {new_bags * bag_weight:,.0f} kg)"
-                )
+                    pending_updates[row_idx] = new_bags
+                    preview_lines.append(
+                        f"- *{row['Product']}*: {new_bags:,.1f} bags "
+                        f"(≈ {new_bags * bag_weight:,.0f} kg)"
+                    )
 
-            if preview_lines:
-                st.info("Pending changes:\n" + "\n".join(preview_lines))
+                if preview_lines:
+                    st.info("Pending changes:\n" + "\n".join(preview_lines))
 
-            if st.button(f"💾 Save {loc['name']} Stock Changes", key=f"save_{loc['id']}", type="primary"):
+        if pending_updates:
+            if st.button(f"💾 Save {loc['name']} Stock Changes", key=save_key, type="primary"):
+                saved = []
+                failed = []
                 for row_idx, new_bags in pending_updates.items():
-                    product_id = int(base_df.iloc[row_idx]["product_id"])
-                    db.set_stock(product_id, loc["id"], new_bags)
-                st.success(f"Updated {len(pending_updates)} product(s) at {loc['name']}.")
-                del st.session_state[editor_key]
+                    try:
+                        product_id = int(base_df.iloc[row_idx]["product_id"])
+                        result = db.set_stock(product_id, loc["id"], float(new_bags))
+                        saved.append(base_df.iloc[row_idx]["Product"])
+                    except Exception as e:
+                        failed.append((base_df.iloc[row_idx]["Product"], str(e)))
+
+                if saved:
+                    st.success(
+                        f"Saved {len(saved)} product(s) at {loc['name']}: {', '.join(saved)}. "
+                        "Reloading..."
+                    )
+                if failed:
+                    for prod, err in failed:
+                        st.error(f"Failed to save {prod}: {err}")
                 st.rerun()
 
         low_stock = base_df[base_df["Bags"] < 0]
